@@ -7,9 +7,15 @@ import { Map as MapLibreMap, NavigationControl, setWorkerUrl } from "maplibre-gl
 
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, MAP_STYLE_URL } from "@/config/map";
 
+import { useRiskColors } from "../hooks/useRiskColors";
+import { useTripLayers } from "../hooks/useTripLayers";
+import type { Trip } from "../types";
+
 type Props = {
-  /** Called once with the map when its style has loaded; the route, checkpoint and heatmap layers attach here. */
-  onMapReady?: (map: MapLibreMap) => void;
+  /** The trip to draw; null shows the plain map. */
+  trip: Trip | null;
+  /** Index of the highlighted route; its line and markers are full size and the others fade. */
+  selectedRouteIndex: number;
   className?: string;
 };
 
@@ -22,34 +28,36 @@ const hasWebGL = (): boolean => {
 };
 
 /**
- * The base map: pan and zoom by mouse, touch or keyboard (focus it, then arrows and +/-).
- * Browser-only, so load it through `TripMap`: `<MapCanvas onMapReady={addLayers} />`.
+ * The map with a trip's routes and checkpoints on it: pan and zoom by mouse, touch or keyboard
+ * (focus the map, then arrows and +/-). Browser-only, so load it through `TripMap`.
  */
-const MapCanvas = ({ onMapReady, className = "" }: Props): React.ReactElement => {
+const MapCanvas = ({ trip, selectedRouteIndex, className = "" }: Props): React.ReactElement => {
   const container = useRef<HTMLDivElement>(null);
   const [supported] = useState(hasWebGL); // runs in the browser only: this module is never server-rendered
-  const ready = useRef(onMapReady);
+  const [map, setMap] = useState<MapLibreMap | null>(null); // set once the base style has loaded (not the tiles, which can be slow)
+  const colors = useRiskColors();
 
-  useEffect(() => {
-    ready.current = onMapReady;
-  }, [onMapReady]);
+  useTripLayers(map, trip, selectedRouteIndex, colors);
 
   useEffect(() => {
     const element = container.current;
     if (!supported || !element) return;
     setWorkerUrl(new URL(WORKER_PATH, window.location.origin).href);
-    const map = new MapLibreMap({
+    const created = new MapLibreMap({
       container: element,
       style: MAP_STYLE_URL,
       center: DEFAULT_MAP_CENTER,
       zoom: DEFAULT_MAP_ZOOM,
       attributionControl: { compact: true },
     });
-    map.addControl(new NavigationControl({ showCompass: false }), "top-right");
-    map.touchZoomRotate.disableRotation(); // north stays up, so route letters and risk colours read the same
-    map.dragRotate.disable();
-    map.once("load", () => ready.current?.(map));
-    return () => map.remove();
+    created.addControl(new NavigationControl({ showCompass: false }), "top-right");
+    created.touchZoomRotate.disableRotation(); // north stays up, so route letters and risk colours read the same
+    created.dragRotate.disable();
+    created.once("style.load", () => setMap(created));
+    return () => {
+      setMap(null);
+      created.remove();
+    };
   }, [supported]);
 
   if (!supported) {
