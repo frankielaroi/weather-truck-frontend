@@ -3,6 +3,45 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /*
+   * Risk colours: the only place they are defined (F1). `src/components/ui/risk.ts`
+   * maps each level to these tokens. Checked with Machado CVD simulation
+   * (protan/deutan/tritan): every pair of levels stays >= 12 dE2000 apart, and
+   * every pill's text meets WCAG AA (>= 4.5:1) on its fill, in both themes.
+   */
+  --risk-low: #1a9e77;
+  --risk-low-fg: #000000;
+  --risk-moderate: #f9d71c;
+  --risk-moderate-fg: #000000;
+  --risk-high: #eb6a14;
+  --risk-high-fg: #000000;
+  --risk-severe: #b5161e;
+  --risk-severe-fg: #ffffff;
+  --risk-no-travel: #3d0a4f;
+  --risk-no-travel-fg: #ffffff;
+  --risk-unknown: #8a8f98;
+  --risk-unknown-hatch: #b4b8bf;
+  --risk-unknown-fg: #000000;
+  /* Casing for markers and lines so light fills (Moderate) stand out on the map. */
+  --risk-outline: #111418;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+
+    --risk-low: #2bb58c;
+    --risk-moderate: #f9d71c;
+    --risk-high: #f08a24;
+    --risk-severe: #e5383b;
+    --risk-severe-fg: #000000;
+    --risk-no-travel: #c27ee6;
+    --risk-no-travel-fg: #000000;
+    --risk-unknown: #7d828b;
+    --risk-unknown-hatch: #a3a8b0;
+  }
 }
 
 @theme inline {
@@ -10,13 +49,30 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-risk-low: var(--risk-low);
+  --color-risk-low-fg: var(--risk-low-fg);
+  --color-risk-moderate: var(--risk-moderate);
+  --color-risk-moderate-fg: var(--risk-moderate-fg);
+  --color-risk-high: var(--risk-high);
+  --color-risk-high-fg: var(--risk-high-fg);
+  --color-risk-severe: var(--risk-severe);
+  --color-risk-severe-fg: var(--risk-severe-fg);
+  --color-risk-no-travel: var(--risk-no-travel);
+  --color-risk-no-travel-fg: var(--risk-no-travel-fg);
+  --color-risk-unknown: var(--risk-unknown);
+  --color-risk-unknown-fg: var(--risk-unknown-fg);
+  --color-risk-outline: var(--risk-outline);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Unknown is hatched so it never reads as a flat colour like Low. */
+@utility bg-risk-unknown-hatched {
+  background-color: var(--risk-unknown);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--risk-unknown) 0 4px,
+    var(--risk-unknown-hatch) 4px 8px
+  );
 }
 
 body {

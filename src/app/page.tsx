@@ -1,26 +1,20 @@
-"use client";
+import { RISK_LEVELS, RiskLegend, RiskPill } from "@/components/ui";
 
-import { useEffect, useState } from "react";
-import { apiGet } from "@/lib/api";
+import { ApiStatus } from "./_components/ApiStatus";
 
-export default function Home() {
-  const [status, setStatus] = useState<"checking" | "ok" | "down">("checking");
-
-  useEffect(() => {
-    apiGet<{ status: string }>("/health/")
-      .then((d) => setStatus(d.status === "ok" ? "ok" : "down"))
-      .catch(() => setStatus("down"));
-  }, []);
-
-  return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8">
+const Home = (): React.ReactElement => (
+  <main className="flex flex-1 flex-col items-center justify-center gap-8 p-8">
+    <div className="flex flex-col items-center gap-2">
       <h1 className="text-3xl font-semibold">Weather-Aware Truck Routing</h1>
-      <p className="text-zinc-500">
-        Backend API:{" "}
-        <span className={status === "ok" ? "text-green-600" : status === "down" ? "text-red-600" : ""}>
-          {status}
-        </span>
-      </p>
-    </main>
-  );
-}
+      <ApiStatus />
+    </div>
+    <div className="flex flex-wrap justify-center gap-2">
+      {RISK_LEVELS.map((level) => (
+        <RiskPill key={level} level={level} />
+      ))}
+    </div>
+    <RiskLegend className="w-full max-w-md" />
+  </main>
+);
+
+export default Home;
