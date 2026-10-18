@@ -34,6 +34,7 @@ export const TripPlanner = (): React.ReactElement => {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [loadError, setLoadError] = useState<{ id: number; error: ApiError } | null>(null);
   const known = useRef<number | null>(null); // the trip we already hold, so a fresh submit isn't fetched again
+  const [loadAttempt, setLoadAttempt] = useState(0); // bumped to load the trip again
   const [heatmapOn, setHeatmapOn] = useState(true); // on by default once it has loaded
 
   useEffect(() => {
@@ -49,13 +50,19 @@ export const TripPlanner = (): React.ReactElement => {
         setLoadError({ id: tripId, error: err instanceof ApiError ? err : new ApiError("server", "Couldn't load this trip.") });
       });
     return () => controller.abort();
-  }, [tripId]);
+  }, [tripId, loadAttempt]);
 
   const onCreated = (created: Trip): void => {
     known.current = created.id;
     setTrip(created);
     setLoadError(null);
     window.history.pushState(null, "", `?trip=${created.id}`);
+  };
+
+  const reloadTrip = (): void => {
+    known.current = null;
+    setLoadError(null);
+    setLoadAttempt((n) => n + 1);
   };
 
   const startOver = (): void => {
@@ -81,7 +88,7 @@ export const TripPlanner = (): React.ReactElement => {
 
   return (
     <div className="grid w-full max-w-5xl gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
-      <TripForm onCreated={onCreated} />
+      <TripForm onCreated={onCreated} intro={tripId === null} />
       {/* On a phone the map and route cards come first once there is a trip, with the form below them. */}
       <div className={`flex min-w-0 flex-col gap-6 ${shown ? "order-first lg:order-none" : ""}`}>
         <HeatmapControl status={heatmapStatus} visible={heatmapOn} onToggle={setHeatmapOn} onRetry={retryHeatmap} />
@@ -99,7 +106,7 @@ export const TripPlanner = (): React.ReactElement => {
         <div aria-live="polite">
         {shown ? (
           <div className="flex flex-col gap-4">
-            <TripResults trip={shown} selectedRouteIndex={selectedRoute} onSelectRoute={selectRoute} />
+            <TripResults trip={shown} selectedRouteIndex={selectedRoute} onSelectRoute={selectRoute} onReload={reloadTrip} />
             <Button variant="secondary" onClick={startOver} className="self-start">
               Clear result
             </Button>
@@ -107,10 +114,19 @@ export const TripPlanner = (): React.ReactElement => {
         ) : failed ? (
           <div role="alert" className="rounded-md border border-red-700 bg-red-700/10 p-4 dark:border-red-400">
             <p className="font-semibold">{failed.kind === "not_found" ? "We couldn’t find that trip." : failed.message}</p>
-            <p className="mt-1 text-sm">Plan a new trip with the form.</p>
+            {failed.retryable ? (
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+                <span>{failed.nextStep}</span>
+                <Button variant="secondary" onClick={reloadTrip} className="px-3 py-1 text-sm">
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <p className="mt-1 text-sm">Plan a new trip with the form.</p>
+            )}
           </div>
         ) : tripId !== null ? (
-          <p>Loading your trip…</p>
+          <p role="status">Loading your trip…</p>
         ) : (
           <p className="opacity-75">Your routes will show here once you plan a trip.</p>
         )}
