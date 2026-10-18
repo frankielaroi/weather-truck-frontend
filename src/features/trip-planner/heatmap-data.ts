@@ -83,3 +83,42 @@ export const heatReading = (heatmap: Heatmap, point: number, hour: number): Heat
     snowInPerHr: heatmap.snow_in_per_hr[point]?.[hour] ?? null,
   };
 };
+
+/** `hour` is the hour (0–48) the truck is at this position. */
+export type TruckProps = { hour: number };
+
+/** One point per hour at the truck's position then, so the map can show the current one with no data change. */
+export const truckPoints = (heatmap: Heatmap): FeatureCollection<Point, TruckProps> => ({
+  type: "FeatureCollection",
+  features: heatmap.truck.positions.map(
+    ([lng, lat], hour): Feature<Point, TruckProps> => ({
+      type: "Feature",
+      properties: { hour },
+      geometry: { type: "Point", coordinates: [lng, lat] },
+    }),
+  ),
+});
+
+const NEAR_DEGREES = 0.01; // about 1 km: the backend places the truck exactly on the origin or destination
+
+const isNear = (position: readonly [number, number], place: { lat: number; lng: number }): boolean =>
+  Math.abs(position[0] - place.lng) < NEAR_DEGREES && Math.abs(position[1] - place.lat) < NEAR_DEGREES;
+
+export type TruckStatus = "waiting at the origin" | "on the road" | "arrived at the destination";
+
+/**
+ * Where the truck is at `hour`, in words (the marker is only visual). The backend holds it at the origin
+ * before departure and at the destination after arrival.
+ */
+export const truckStatus = (
+  heatmap: Heatmap,
+  hour: number,
+  origin: { lat: number; lng: number },
+  destination: { lat: number; lng: number },
+): TruckStatus => {
+  const position = heatmap.truck.positions[hour];
+  if (!position) return "on the road";
+  if (isNear(position, origin)) return "waiting at the origin";
+  if (isNear(position, destination)) return "arrived at the destination";
+  return "on the road";
+};

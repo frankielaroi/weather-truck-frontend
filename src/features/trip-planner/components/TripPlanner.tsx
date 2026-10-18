@@ -7,12 +7,12 @@ import { Button } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 
 import { getTrip } from "../api";
-import { formatDateTime } from "../format";
-import { defaultHeatmapHour } from "../heatmap-data";
 import { useHeatmap } from "../hooks/useHeatmap";
+import { useHourStore } from "../hooks/useHourStore";
 import { ROUTE_PARAM, searchWithSelectedRoute, selectedRouteFromParam } from "../route-selection";
 import type { Trip } from "../types";
 import { HeatmapControl } from "./HeatmapControl";
+import { HeatmapSlider } from "./HeatmapSlider";
 import { TripForm } from "./TripForm";
 import { TripMap } from "./TripMap";
 import { TripResults } from "./TripResults";
@@ -76,23 +76,24 @@ export const TripPlanner = (): React.ReactElement => {
   // The heatmap loads after the trip, on its own, so the routes show first and a failed heatmap never hides them.
   const readyTrip = shown?.status === "ready" ? shown : null;
   const { status: heatmapStatus, heatmap, retry: retryHeatmap } = useHeatmap(readyTrip ? readyTrip.id : null);
-  const heatmapHour = heatmap ? defaultHeatmapHour(heatmap) : 0;
-  const heatmapShownLabel = heatmap
-    ? `${formatDateTime(heatmap.hours[heatmapHour])}${heatmapHour === heatmap.departure_hour ? " (departure hour)" : ""}`
-    : null;
+  // The shown hour lives in a store, not in state: dragging the slider updates only the slider and the map.
+  const hourStore = useHourStore(heatmap);
 
   return (
     <div className="grid w-full max-w-5xl gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
       <TripForm onCreated={onCreated} />
       {/* On a phone the map and route cards come first once there is a trip, with the form below them. */}
       <div className={`flex min-w-0 flex-col gap-6 ${shown ? "order-first lg:order-none" : ""}`}>
-        <HeatmapControl status={heatmapStatus} visible={heatmapOn} onToggle={setHeatmapOn} shownLabel={heatmapShownLabel} onRetry={retryHeatmap} />
+        <HeatmapControl status={heatmapStatus} visible={heatmapOn} onToggle={setHeatmapOn} onRetry={retryHeatmap} />
+        {heatmap && readyTrip ? (
+          <HeatmapSlider heatmap={heatmap} store={hourStore} origin={readyTrip.inputs.origin} destination={readyTrip.inputs.destination} />
+        ) : null}
         <TripMap
           trip={readyTrip}
           selectedRouteIndex={selectedRoute}
           onSelectRoute={selectRoute}
           heatmap={heatmap}
-          heatmapHour={heatmapHour}
+          hourStore={hourStore}
           showHeatmap={heatmapOn}
         />
         <div aria-live="polite">
