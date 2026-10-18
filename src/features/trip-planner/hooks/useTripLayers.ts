@@ -8,7 +8,7 @@ import type { FeatureCollection } from "geojson";
 import { RISK_LEVELS, type RiskLevel } from "@/components/ui/risk";
 
 import { buildCheckpointPopup } from "../components/checkpoint-popup";
-import { checkpointPoints, routeBadges, routeLines, tripBounds, type CheckpointProps } from "../map-data";
+import { checkpointPoints, routeBadges, routeLines, tripBounds, type CheckpointProps, type RouteLineProps } from "../map-data";
 import type { Trip } from "../types";
 import type { RiskColors } from "./useRiskColors";
 
@@ -17,25 +17,60 @@ const POINTS = "trip-checkpoints";
 const BADGES = "trip-route-badges";
 const CHECKPOINTS = "checkpoints";
 
-/** Pixels around a click or tap that still count as hitting a marker, so they're easy to hit on a phone. */
-const HIT_RADIUS_PX = 8;
+/** Marker radii in pixels: the selected route's markers are bigger. */
+const MARKER_RADIUS = { selected: 7, other: 4.5 } as const;
+/** How far past a marker's edge, and a route line's edge, a click or tap still counts, so they're easy to hit on a phone. */
+const MARKER_SLACK_PX = 4;
+const LINE_HIT_PX = 6;
 
 const EMPTY: FeatureCollection = { type: "FeatureCollection", features: [] };
 
-// The recommended route is always the thickest and sits on top; the selected route grows a little.
+// Every route has a faded base line. The selected route is drawn again on top, full strength, so its line
+// comes to the front; the recommended route is always the thickest.
 const WIDTH = { other: 3.5, otherSelected: 5, recommended: 5.5, recommendedSelected: 7, casing: 3 } as const;
+const DASH = [2, 1.4]; // alternatives are dashed, so they differ from the recommended route without relying on colour
+
+const BASE_LINES = ["route-line-other", "route-line-recommended"] as const;
+const LINE_LAYERS = [...BASE_LINES, "selected-line-other", "selected-line-recommended"] as const;
 
 const prefersReducedMotion = (): boolean => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-/** The sources' layers, bottom to top. Paint values that depend on colours or selection are set by `applyStyle`. */
+const OTHER: ExpressionSpecification = ["!", ["get", "recommended"]];
+const RECOMMENDED: ExpressionSpecification = ["get", "recommended"];
+
+const line = (
+  id: string,
+  filter: ExpressionSpecification,
+  paint: Extract<LayerSpecification, { type: "line" }>["paint"],
+  rounded: boolean,
+): LayerSpecification => ({
+  id,
+  type: "line",
+  source: LINES,
+  filter,
+  layout: { "line-join": "round", ...(rounded ? { "line-cap": "round" as const } : {}) },
+  paint,
+});
+
+const casing = (width: number, opacity: number): Extract<LayerSpecification, { type: "line" }>["paint"] => ({
+  "line-width": width + WIDTH.casing,
+  "line-color": "#ffffff",
+  "line-opacity": opacity,
+});
+
+/** The layers, bottom to top. Colours and the selection are applied afterwards by `applyColors` / `applySelection`. */
 const layers = (): LayerSpecification[] => [
-  { id: "route-casing-other", type: "line", source: LINES, filter: ["!", ["get", "recommended"]], layout: { "line-join": "round" }, paint: { "line-color": "#ffffff" } },
-  // Dashed, so the alternatives differ from the recommended route without relying on colour.
-  { id: "route-line-other", type: "line", source: LINES, filter: ["!", ["get", "recommended"]], layout: { "line-join": "round" }, paint: { "line-dasharray": [2, 1.4] } },
-  { id: "route-casing-recommended", type: "line", source: LINES, filter: ["get", "recommended"], layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#ffffff" } },
-  { id: "route-line-recommended", type: "line", source: LINES, filter: ["get", "recommended"], layout: { "line-join": "round", "line-cap": "round" }, paint: {} },
+  line("route-casing-other", OTHER, casing(WIDTH.other, 0.6), false),
+  line("route-line-other", OTHER, { "line-width": WIDTH.other, "line-dasharray": DASH, "line-opacity": 0.65 }, false),
+  line("route-casing-recommended", RECOMMENDED, casing(WIDTH.recommended, 0.6), true),
+  line("route-line-recommended", RECOMMENDED, { "line-width": WIDTH.recommended, "line-opacity": 0.85 }, true),
+  // The selected route again, on top of everything else; its filter follows the selection.
+  line("selected-casing-other", OTHER, casing(WIDTH.otherSelected, 0.95), false),
+  line("selected-line-other", OTHER, { "line-width": WIDTH.otherSelected, "line-dasharray": DASH }, false),
+  line("selected-casing-recommended", RECOMMENDED, casing(WIDTH.recommendedSelected, 0.95), true),
+  line("selected-line-recommended", RECOMMENDED, { "line-width": WIDTH.recommendedSelected }, true),
   { id: CHECKPOINTS, type: "circle", source: POINTS, paint: {} },
-  { id: "route-badge-ring", type: "circle", source: BADGES, paint: { "circle-radius": 11, "circle-color": "#ffffff", "circle-stroke-width": 2 } },
+  { id: "route-badge-ring", type: "circle", source: BADGES, paint: { "circle-color": "#ffffff" } },
   {
     id: "route-badge-letter",
     type: "symbol",
@@ -45,12 +80,9 @@ const layers = (): LayerSpecification[] => [
   },
 ];
 
-/** Colours and sizes that depend on the risk palette or on which route is selected. */
-const applyStyle = (map: MapLibreMap, colors: RiskColors, selected: number): void => {
-  const line = colors.outline;
-  const lineIsSelected: ExpressionSpecification = ["==", ["get", "index"], selected];
-  const lineValue = (on: number, off: number): ExpressionSpecification => ["case", lineIsSelected, on, off];
-  const pointValue = (on: number, off: number): ExpressionSpecification => ["case", ["==", ["get", "route"], selected], on, off];
+/** Colours from the risk palette: they change with the light/dark setting, never with the selection. */
+const applyColors = (map: MapLibreMap, colors: RiskColors): void => {
+  const outline = colors.outline;
   // ["match", level, "low", a, "moderate", b, ..., fallback]: one value per level, Unknown as the fallback.
   // Cast because the style spec's tuple types can't follow a spread of arms.
   const byLevel = <T extends string | number>(pick: (level: RiskLevel) => T): ExpressionSpecification =>
@@ -61,68 +93,95 @@ const applyStyle = (map: MapLibreMap, colors: RiskColors, selected: number): voi
       pick("unknown"),
     ] as unknown as ExpressionSpecification;
 
-  map.setPaintProperty("route-line-other", "line-color", line);
-  map.setPaintProperty("route-line-other", "line-width", lineValue(WIDTH.otherSelected, WIDTH.other));
-  map.setPaintProperty("route-line-other", "line-opacity", lineValue(1, 0.65));
-  map.setPaintProperty("route-casing-other", "line-width", lineValue(WIDTH.otherSelected + WIDTH.casing, WIDTH.other + WIDTH.casing));
-  map.setPaintProperty("route-casing-other", "line-opacity", lineValue(0.95, 0.6));
-  map.setPaintProperty("route-line-recommended", "line-color", line);
-  map.setPaintProperty("route-line-recommended", "line-width", lineValue(WIDTH.recommendedSelected, WIDTH.recommended));
-  map.setPaintProperty("route-casing-recommended", "line-width", lineValue(WIDTH.recommendedSelected + WIDTH.casing, WIDTH.recommended + WIDTH.casing));
-
+  for (const id of LINE_LAYERS) map.setPaintProperty(id, "line-color", outline);
   // Markers are filled with the level's colour; Unknown is a hollow ring so it never reads as Low.
   map.setPaintProperty(CHECKPOINTS, "circle-color", byLevel((level) => (level === "unknown" ? "#ffffff" : colors[level])));
-  map.setPaintProperty(CHECKPOINTS, "circle-stroke-color", byLevel((level) => (level === "unknown" ? colors.unknown : line)));
+  map.setPaintProperty(CHECKPOINTS, "circle-stroke-color", byLevel((level) => (level === "unknown" ? colors.unknown : outline)));
   map.setPaintProperty(CHECKPOINTS, "circle-stroke-width", byLevel((level) => (level === "unknown" ? 3 : 1.5)));
-  map.setPaintProperty(CHECKPOINTS, "circle-radius", pointValue(7, 4.5));
-  map.setPaintProperty(CHECKPOINTS, "circle-opacity", pointValue(1, 0.6));
-  map.setPaintProperty(CHECKPOINTS, "circle-stroke-opacity", pointValue(1, 0.6));
-  map.setLayoutProperty(CHECKPOINTS, "circle-sort-key", pointValue(1, 0)); // the selected route's markers draw on top
+  map.setPaintProperty("route-badge-ring", "circle-stroke-color", outline);
+  map.setPaintProperty("route-badge-letter", "text-color", outline);
+};
 
-  map.setPaintProperty("route-badge-ring", "circle-stroke-color", line);
-  map.setPaintProperty("route-badge-letter", "text-color", line);
+/** Everything that depends on which route is selected, and nothing else. */
+const applySelection = (map: MapLibreMap, selected: number): void => {
+  const isSelected: ExpressionSpecification = ["==", ["get", "index"], selected];
+  map.setFilter("selected-casing-other", ["all", isSelected, OTHER]);
+  map.setFilter("selected-line-other", ["all", isSelected, OTHER]);
+  map.setFilter("selected-casing-recommended", ["all", isSelected, RECOMMENDED]);
+  map.setFilter("selected-line-recommended", ["all", isSelected, RECOMMENDED]);
+
+  const point = (on: number, off: number): ExpressionSpecification => ["case", ["==", ["get", "route"], selected], on, off];
+  map.setPaintProperty(CHECKPOINTS, "circle-radius", point(MARKER_RADIUS.selected, MARKER_RADIUS.other));
+  map.setPaintProperty(CHECKPOINTS, "circle-opacity", point(1, 0.6));
+  map.setPaintProperty(CHECKPOINTS, "circle-stroke-opacity", point(1, 0.6));
+  map.setLayoutProperty(CHECKPOINTS, "circle-sort-key", point(1, 0)); // the selected route's markers draw on top
+  map.setPaintProperty("route-badge-ring", "circle-radius", ["case", isSelected, 13, 10]);
+  map.setPaintProperty("route-badge-ring", "circle-stroke-width", ["case", isSelected, 3, 2]);
 };
 
 const setData = (map: MapLibreMap, source: string, data: FeatureCollection): void => {
   map.getSource<GeoJSONSource>(source)?.setData(data);
 };
 
-/** The marker nearest to a click or tap, within `HIT_RADIUS_PX`; markers can sit a few pixels apart when zoomed out. */
-const checkpointAt = (map: MapLibreMap, e: MapMouseEvent): CheckpointProps | null => {
-  const { x, y } = e.point;
-  const box: [[number, number], [number, number]] = [
-    [x - HIT_RADIUS_PX, y - HIT_RADIUS_PX],
-    [x + HIT_RADIUS_PX, y + HIT_RADIUS_PX],
-  ];
+const box = (e: MapMouseEvent, radius: number): [[number, number], [number, number]] => [
+  [e.point.x - radius, e.point.y - radius],
+  [e.point.x + radius, e.point.y + radius],
+];
+
+/**
+ * The marker a click or tap is on (within `MARKER_SLACK_PX` of its edge), nearest first. Markers can sit a
+ * few pixels apart when zoomed out, so a click between them falls through to the route line underneath.
+ */
+const checkpointAt = (map: MapLibreMap, e: MapMouseEvent, selected: number): CheckpointProps | null => {
+  const reach = MARKER_RADIUS.selected + MARKER_SLACK_PX;
   let nearest: CheckpointProps | null = null;
   let nearestDistance = Infinity;
-  for (const hit of map.queryRenderedFeatures(box, { layers: [CHECKPOINTS] })) {
+  for (const hit of map.queryRenderedFeatures(box(e, reach), { layers: [CHECKPOINTS] })) {
     if (hit.geometry.type !== "Point") continue;
+    const props = hit.properties as CheckpointProps;
+    const radius = props.route === selected ? MARKER_RADIUS.selected : MARKER_RADIUS.other;
     const at = map.project(hit.geometry.coordinates as [number, number]);
-    const distance = Math.hypot(at.x - x, at.y - y);
-    if (distance < nearestDistance) {
+    const distance = Math.hypot(at.x - e.point.x, at.y - e.point.y);
+    if (distance <= radius + MARKER_SLACK_PX && distance < nearestDistance) {
       nearestDistance = distance;
-      nearest = hit.properties as CheckpointProps;
+      nearest = props;
     }
   }
   return nearest;
 };
 
+/** The routes whose line passes under a click or tap. */
+const routesAt = (map: MapLibreMap, e: MapMouseEvent): number[] => {
+  const hits = map.queryRenderedFeatures(box(e, LINE_HIT_PX), { layers: [...BASE_LINES] });
+  return [...new Set(hits.map((hit) => (hit.properties as RouteLineProps).index))];
+};
+
 /**
- * Draws a trip on the map: the route lines (recommended thickest and on top), a marker per checkpoint
- * coloured by risk, a letter badge per route, and a popup with the details when a marker is clicked.
- * Sources and layers are added once and updated in place, so a new trip, a new selection or a colour
- * scheme change never rebuilds the map. `map` is null until its style has loaded.
+ * Draws a trip on the map: the route lines (the selected route on top, the recommended one thickest), a marker
+ * per checkpoint coloured by risk, a letter badge per route, a popup with the details when a marker is clicked,
+ * and `onSelectRoute` when a route's line is clicked. Sources and layers are added once and updated in place:
+ * a new trip calls `setData`, a new selection only changes filters and style, a colour-scheme change only
+ * colours. `map` is null until its style has loaded.
  */
-export const useTripLayers = (map: MapLibreMap | null, trip: Trip | null, selected: number, colors: RiskColors): void => {
+export const useTripLayers = (
+  map: MapLibreMap | null,
+  trip: Trip | null,
+  selected: number,
+  colors: RiskColors,
+  onSelectRoute?: (index: number) => void,
+): void => {
   const tripRef = useRef<Trip | null>(trip);
+  const selectedRef = useRef(selected);
+  const onSelectRef = useRef(onSelectRoute);
   const popup = useRef<Popup | null>(null);
 
   useEffect(() => {
     tripRef.current = trip;
-  }, [trip]);
+    selectedRef.current = selected;
+    onSelectRef.current = onSelectRoute;
+  }, [trip, selected, onSelectRoute]);
 
-  // Once per map: sources, layers and marker clicks.
+  // Once per map: sources, layers, and clicks.
   useEffect(() => {
     if (!map) return;
     map.addSource(LINES, { type: "geojson", data: EMPTY });
@@ -131,18 +190,25 @@ export const useTripLayers = (map: MapLibreMap | null, trip: Trip | null, select
     for (const layer of layers()) map.addLayer(layer);
 
     map.on("click", (e) => {
-      const hit = checkpointAt(map, e);
-      const route = tripRef.current?.routes.find((r) => r.index === hit?.route);
-      const checkpoint = route?.checkpoints.find((c) => c.sequence === hit?.sequence);
-      if (!route || !checkpoint) return;
-      popup.current?.remove();
-      popup.current = new Popup({ closeButton: true, maxWidth: "300px", offset: 10 })
-        .setLngLat([checkpoint.lng, checkpoint.lat])
-        .setDOMContent(buildCheckpointPopup(route, checkpoint))
-        .addTo(map);
+      const hit = checkpointAt(map, e, selectedRef.current);
+      if (hit) {
+        const route = tripRef.current?.routes.find((r) => r.index === hit.route);
+        const checkpoint = route?.checkpoints.find((c) => c.sequence === hit.sequence);
+        if (!route || !checkpoint) return;
+        popup.current?.remove();
+        popup.current = new Popup({ closeButton: true, maxWidth: "300px", offset: 10 })
+          .setLngLat([checkpoint.lng, checkpoint.lat])
+          .setDOMContent(buildCheckpointPopup(route, checkpoint))
+          .addTo(map);
+        return;
+      }
+      // Where routes share a road, clicking again picks the next one, so every route can be reached.
+      const routes = routesAt(map, e);
+      const next = routes.find((index) => index !== selectedRef.current) ?? routes[0];
+      if (next !== undefined && next !== selectedRef.current) onSelectRef.current?.(next);
     });
     map.on("mousemove", (e) => {
-      map.getCanvas().style.cursor = checkpointAt(map, e) ? "pointer" : "";
+      map.getCanvas().style.cursor = checkpointAt(map, e, selectedRef.current) || routesAt(map, e).length > 0 ? "pointer" : "";
     });
   }, [map]);
 
@@ -159,8 +225,12 @@ export const useTripLayers = (map: MapLibreMap | null, trip: Trip | null, select
     }
   }, [map, trip]);
 
-  // Colours or selection changed: restyle in place.
+  // The effects below are separate so each runs only when its own input changes.
   useEffect(() => {
-    if (map) applyStyle(map, colors, selected);
-  }, [map, colors, selected]);
+    if (map) applyColors(map, colors);
+  }, [map, colors]);
+
+  useEffect(() => {
+    if (map) applySelection(map, selected);
+  }, [map, selected]);
 };
