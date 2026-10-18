@@ -1,10 +1,14 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import type { Map as MapLibreMap } from "maplibre-gl";
+
+import { defaultSelectedRoute } from "../map-data";
+import type { Trip } from "../types";
 
 type Props = {
-  onMapReady?: (map: MapLibreMap) => void;
+  trip: Trip | null;
+  /** Route to highlight; defaults to the recommended one. */
+  selectedRouteIndex?: number;
 };
 
 const MAP_BOX = "h-72 w-full sm:h-96 lg:h-[28rem]";
@@ -18,9 +22,9 @@ const MapPlaceholder = (): React.ReactElement => (
 // MapLibre needs the browser (WebGL), so it never renders on the server; the placeholder shows meanwhile.
 const MapCanvas = dynamic(() => import("./MapCanvas"), { ssr: false, loading: MapPlaceholder });
 
-/** The route map with a loading placeholder: `<TripMap onMapReady={addLayers} />`. */
-export const TripMap = ({ onMapReady }: Props): React.ReactElement => (
+/** The route map with a loading placeholder: `<TripMap trip={trip} />`. */
+export const TripMap = ({ trip, selectedRouteIndex }: Props): React.ReactElement => (
   <section aria-label="Route map" className="overflow-hidden rounded-md border border-foreground/30">
-    <MapCanvas onMapReady={onMapReady} className={MAP_BOX} />
+    <MapCanvas trip={trip} selectedRouteIndex={selectedRouteIndex ?? (trip ? defaultSelectedRoute(trip) : 0)} className={MAP_BOX} />
   </section>
 );

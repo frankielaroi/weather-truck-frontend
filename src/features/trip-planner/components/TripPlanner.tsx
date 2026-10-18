@@ -63,7 +63,7 @@ export const TripPlanner = (): React.ReactElement => {
     <div className="grid w-full max-w-5xl gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
       <TripForm onCreated={onCreated} />
       <div className="flex min-w-0 flex-col gap-6">
-        <TripMap />
+        <TripMap trip={shown?.status === "ready" ? shown : null} />
         <div aria-live="polite">
         {shown ? (
           <div className="flex flex-col gap-4">
