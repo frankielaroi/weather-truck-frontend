@@ -16,6 +16,8 @@ type Props = {
   trip: Trip | null;
   /** Index of the highlighted route; its line and markers are full size and the others fade. */
   selectedRouteIndex: number;
+  /** Called when the driver clicks a route's line on the map. */
+  onSelectRoute?: (index: number) => void;
   className?: string;
 };
 
@@ -31,13 +33,13 @@ const hasWebGL = (): boolean => {
  * The map with a trip's routes and checkpoints on it: pan and zoom by mouse, touch or keyboard
  * (focus the map, then arrows and +/-). Browser-only, so load it through `TripMap`.
  */
-const MapCanvas = ({ trip, selectedRouteIndex, className = "" }: Props): React.ReactElement => {
+const MapCanvas = ({ trip, selectedRouteIndex, onSelectRoute, className = "" }: Props): React.ReactElement => {
   const container = useRef<HTMLDivElement>(null);
   const [supported] = useState(hasWebGL); // runs in the browser only: this module is never server-rendered
   const [map, setMap] = useState<MapLibreMap | null>(null); // set once the base style has loaded (not the tiles, which can be slow)
   const colors = useRiskColors();
 
-  useTripLayers(map, trip, selectedRouteIndex, colors);
+  useTripLayers(map, trip, selectedRouteIndex, colors, onSelectRoute);
 
   useEffect(() => {
     const element = container.current;
