@@ -127,9 +127,9 @@ export type CreateTripInput = TripInputs;
 export type HourlyGrid<T> = (T | null)[][];
 
 /**
- * Corridor heatmap (B11), compact: positions once, then one list of 49 hourly
- * values per point for each field, in the same order as `points`.
- * Provisional: typed from the backend's B11 work in progress.
+ * Corridor heatmap (B11/B12, `GET /trips/:id/heatmap/`), compact: positions once, then one list of 49
+ * hourly values per point for each field, in the same order as `points`. Checked against a real
+ * Chicago → Denver payload (393 points).
  */
 export type Heatmap = {
   version: number;
