@@ -95,3 +95,7 @@ export const readRiskColors = (
   ) as Record<RiskLevel, string>;
   return { ...colors, outline: read(RISK_OUTLINE_VAR) };
 };
+
+/** The F1 level for an API risk value (0–4, or null for Unknown). */
+export const riskLevelFromValue = (value: number | null): RiskLevel =>
+  value === null ? "unknown" : (RISK_LEVELS[value] ?? "unknown");

@@ -5,6 +5,7 @@ export {
   RISK_LEVELS,
   RISK_OUTLINE_VAR,
   readRiskColors,
+  riskLevelFromValue,
   riskTitle,
   type RiskLevel,
   type RiskStyle,
