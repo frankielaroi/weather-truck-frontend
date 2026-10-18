@@ -7,9 +7,10 @@ import { Map as MapLibreMap, NavigationControl, setWorkerUrl } from "maplibre-gl
 
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, MAP_STYLE_URL } from "@/config/map";
 
+import { useHeatmapLayer } from "../hooks/useHeatmapLayer";
 import { useRiskColors } from "../hooks/useRiskColors";
 import { useTripLayers } from "../hooks/useTripLayers";
-import type { Trip } from "../types";
+import type { Heatmap, Trip } from "../types";
 
 type Props = {
   /** The trip to draw; null shows the plain map. */
@@ -18,6 +19,11 @@ type Props = {
   selectedRouteIndex: number;
   /** Called when the driver clicks a route's line on the map. */
   onSelectRoute?: (index: number) => void;
+  /** The corridor heatmap once loaded; drawn under the routes. */
+  heatmap: Heatmap | null;
+  /** The hour (0–48) of the heatmap to show. */
+  heatmapHour: number;
+  showHeatmap: boolean;
   className?: string;
 };
 
@@ -33,13 +39,14 @@ const hasWebGL = (): boolean => {
  * The map with a trip's routes and checkpoints on it: pan and zoom by mouse, touch or keyboard
  * (focus the map, then arrows and +/-). Browser-only, so load it through `TripMap`.
  */
-const MapCanvas = ({ trip, selectedRouteIndex, onSelectRoute, className = "" }: Props): React.ReactElement => {
+const MapCanvas = ({ trip, selectedRouteIndex, onSelectRoute, heatmap, heatmapHour, showHeatmap, className = "" }: Props): React.ReactElement => {
   const container = useRef<HTMLDivElement>(null);
   const [supported] = useState(hasWebGL); // runs in the browser only: this module is never server-rendered
   const [map, setMap] = useState<MapLibreMap | null>(null); // set once the base style has loaded (not the tiles, which can be slow)
   const colors = useRiskColors();
 
   useTripLayers(map, trip, selectedRouteIndex, colors, onSelectRoute);
+  useHeatmapLayer(map, heatmap, heatmapHour, showHeatmap, colors); // after the route layers, so it can go under them
 
   useEffect(() => {
     const element = container.current;

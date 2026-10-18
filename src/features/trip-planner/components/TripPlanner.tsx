@@ -7,8 +7,12 @@ import { Button } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 
 import { getTrip } from "../api";
+import { formatDateTime } from "../format";
+import { defaultHeatmapHour } from "../heatmap-data";
+import { useHeatmap } from "../hooks/useHeatmap";
 import { ROUTE_PARAM, searchWithSelectedRoute, selectedRouteFromParam } from "../route-selection";
 import type { Trip } from "../types";
+import { HeatmapControl } from "./HeatmapControl";
 import { TripForm } from "./TripForm";
 import { TripMap } from "./TripMap";
 import { TripResults } from "./TripResults";
@@ -30,6 +34,7 @@ export const TripPlanner = (): React.ReactElement => {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [loadError, setLoadError] = useState<{ id: number; error: ApiError } | null>(null);
   const known = useRef<number | null>(null); // the trip we already hold, so a fresh submit isn't fetched again
+  const [heatmapOn, setHeatmapOn] = useState(true); // on by default once it has loaded
 
   useEffect(() => {
     if (tripId === null || known.current === tripId) return;
@@ -68,12 +73,28 @@ export const TripPlanner = (): React.ReactElement => {
     window.history.replaceState(null, "", `${window.location.pathname}${searchWithSelectedRoute(shown, window.location.search, index)}`);
   };
 
+  // The heatmap loads after the trip, on its own, so the routes show first and a failed heatmap never hides them.
+  const readyTrip = shown?.status === "ready" ? shown : null;
+  const { status: heatmapStatus, heatmap, retry: retryHeatmap } = useHeatmap(readyTrip ? readyTrip.id : null);
+  const heatmapHour = heatmap ? defaultHeatmapHour(heatmap) : 0;
+  const heatmapShownLabel = heatmap
+    ? `${formatDateTime(heatmap.hours[heatmapHour])}${heatmapHour === heatmap.departure_hour ? " (departure hour)" : ""}`
+    : null;
+
   return (
     <div className="grid w-full max-w-5xl gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
       <TripForm onCreated={onCreated} />
       {/* On a phone the map and route cards come first once there is a trip, with the form below them. */}
       <div className={`flex min-w-0 flex-col gap-6 ${shown ? "order-first lg:order-none" : ""}`}>
-        <TripMap trip={shown?.status === "ready" ? shown : null} selectedRouteIndex={selectedRoute} onSelectRoute={selectRoute} />
+        <HeatmapControl status={heatmapStatus} visible={heatmapOn} onToggle={setHeatmapOn} shownLabel={heatmapShownLabel} onRetry={retryHeatmap} />
+        <TripMap
+          trip={readyTrip}
+          selectedRouteIndex={selectedRoute}
+          onSelectRoute={selectRoute}
+          heatmap={heatmap}
+          heatmapHour={heatmapHour}
+          showHeatmap={heatmapOn}
+        />
         <div aria-live="polite">
         {shown ? (
           <div className="flex flex-col gap-4">
