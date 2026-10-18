@@ -19,13 +19,26 @@ const FALLBACK_MESSAGES: Record<ApiErrorKind, string> = {
   invalid_input: "Some inputs need fixing.",
   not_found: "We couldn't find that.",
   no_route: "No route found between these places.",
-  rate_limited: "Too many requests in a short time. Wait a minute and try again.",
-  unavailable: "A service we rely on didn't respond. Try again in a moment.",
-  server: "Something went wrong on our side. Try again in a moment.",
-  network: "Couldn't reach the server. Check your connection and try again.",
+  rate_limited: "Too many trips were planned in a short time.",
+  unavailable: "A service we rely on didn't respond.",
+  server: "Something went wrong on our side.",
+  network: "Couldn't reach the server.",
 };
 
 const RETRYABLE: ReadonlySet<ApiErrorKind> = new Set(["rate_limited", "unavailable", "server", "network"]);
+
+/** What the driver can do about each kind of error, in plain words. */
+const NEXT_STEPS: Partial<Record<ApiErrorKind, string>> = {
+  invalid_input: "Check the highlighted fields.",
+  no_route: "Try a different origin or destination.",
+  rate_limited: "Wait a minute, then try again.",
+  unavailable: "Try again in a moment.",
+  server: "Try again in a moment.",
+  network: "Check your connection, then try again.",
+};
+
+/** Only these come with a sentence the backend wrote for the driver; every other message is ours, never raw text from a library. */
+const BACKEND_WORDED: ReadonlySet<ApiErrorKind> = new Set(["invalid_input", "not_found", "no_route", "unavailable", "server"]);
 
 export class ApiError extends Error {
   readonly kind: ApiErrorKind;
@@ -51,6 +64,12 @@ export class ApiError extends Error {
   /** Whether to show a "try again" banner rather than ask the driver to change something. */
   get retryable(): boolean {
     return RETRYABLE.has(this.kind);
+  }
+
+  /** A short line on what to do next, or undefined when there's nothing to add (or the message already says it). */
+  get nextStep(): string | undefined {
+    const step = NEXT_STEPS[this.kind];
+    return step && !this.message.includes(step) ? step : undefined;
   }
 
   /** Messages for one form field, including nested ones ("origin" collects "origin.lat"). */
@@ -95,7 +114,10 @@ export const toApiError = async (res: Response): Promise<ApiError> => {
     // Not JSON (e.g. a proxy's HTML error page): use the fallback message.
   }
   const error = isRecord(body) && isRecord(body.error) ? body.error : null;
-  const message = typeof error?.message === "string" && error.message ? error.message : FALLBACK_MESSAGES[kind];
+  const backendMessage = typeof error?.message === "string" && error.message ? error.message : null;
+  // A throttled request comes back in DRF's own wording ("Request was throttled…"), so it gets ours instead.
+  const backendWorded = BACKEND_WORDED.has(kind) && (kind !== "server" || res.status === 500); // other statuses (405…) carry DRF's own text
+  const message = backendMessage && backendWorded ? backendMessage : FALLBACK_MESSAGES[kind];
   const code = typeof error?.code === "string" ? error.code : null;
   return new ApiError(kind, message, { status: res.status, code, fields: toFields(error?.fields) });
 };

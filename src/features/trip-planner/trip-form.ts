@@ -12,6 +12,14 @@ const DEPARTURE_GRACE_MS = 60 * 60 * 1000;
 const DEPARTURE_HORIZON_MS = 48 * 60 * 60 * 1000;
 const SAME_PLACE_KM = 0.05;
 
+/** A trip to try without typing anything: a long, ordinary run (about 1,000 miles) with a typical load. */
+export const EXAMPLE_TRIP = {
+  origin: { name: "Chicago, IL, USA", lat: 41.8781, lng: -87.6298 },
+  destination: { name: "Denver, CO, USA", lat: 39.7392, lng: -104.9903 },
+  loadWeight: "32,000",
+  interval: DEFAULT_INTERVAL,
+} as const;
+
 /** Form fields, named like the backend's inputs so its field errors land on them. */
 export type TripFormField = "origin" | "destination" | "departure_at" | "load_weight_lb" | "interval_miles";
 

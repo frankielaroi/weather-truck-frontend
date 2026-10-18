@@ -8,6 +8,7 @@ import { ApiError } from "@/lib/api";
 import { createTrip } from "../api";
 import {
   DEFAULT_INTERVAL,
+  EXAMPLE_TRIP,
   defaultDeparture,
   INTERVALS,
   MAX_LOAD_LB,
@@ -20,9 +21,12 @@ import {
 } from "../trip-form";
 import type { Trip } from "../types";
 import { PlaceField } from "./PlaceField";
+import { PlanningProgress } from "./PlanningProgress";
 
 type Props = {
   onCreated: (trip: Trip) => void;
+  /** Show what the app does and the example-trip button; for before the first search. */
+  intro?: boolean;
 };
 
 const initialValues = (): TripFormValues => ({
@@ -45,8 +49,8 @@ const FIELD_IDS: Record<TripFormField, string> = {
   interval_miles: "trip-interval",
 };
 
-/** The trip form: validates as the backend does, then plans the trip: `<TripForm onCreated={show} />`. */
-export const TripForm = ({ onCreated }: Props): React.ReactElement => {
+/** The trip form: validates as the backend does, then plans the trip: `<TripForm onCreated={show} intro />`. */
+export const TripForm = ({ onCreated, intro = false }: Props): React.ReactElement => {
   const [values, setValues] = useState<TripFormValues>(initialValues);
   const [errors, setErrors] = useState<TripFormErrors>({});
   const [banner, setBanner] = useState<ApiError | null>(null);
@@ -69,12 +73,12 @@ export const TripForm = ({ onCreated }: Props): React.ReactElement => {
     if (first) formRef.current?.querySelector<HTMLElement>(`#${FIELD_IDS[first]}`)?.focus();
   };
 
-  const onSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
+  /** Checks `current`, then plans it. Shared by the submit button and the example-trip button. */
+  const plan = async (current: TripFormValues): Promise<void> => {
     if (submitting.current) return;
     setBanner(null);
 
-    const { errors: found, input } = validateTripForm(values, new Date());
+    const { errors: found, input } = validateTripForm(current, new Date());
     setErrors(found);
     if (!input) {
       focusFirst(found);
@@ -102,12 +106,45 @@ export const TripForm = ({ onCreated }: Props): React.ReactElement => {
     }
   };
 
+  const onSubmit = (e: FormEvent<HTMLFormElement>): void => {
+    e.preventDefault();
+    void plan(values);
+  };
+
+  // Fills the form with the example (keeping the default departure and anything else typed) and plans it.
+  const tryExample = (): void => {
+    const filled: TripFormValues = {
+      ...values,
+      origin: EXAMPLE_TRIP.origin,
+      originText: EXAMPLE_TRIP.origin.name,
+      destination: EXAMPLE_TRIP.destination,
+      destinationText: EXAMPLE_TRIP.destination.name,
+      loadWeight: EXAMPLE_TRIP.loadWeight,
+      interval: EXAMPLE_TRIP.interval,
+    };
+    setValues(filled);
+    setErrors({});
+    void plan(filled);
+  };
+
   return (
-    <form ref={formRef} onSubmit={(e) => void onSubmit(e)} noValidate className="flex flex-col gap-5" aria-label="Plan a trip">
+    <form ref={formRef} onSubmit={onSubmit} noValidate className="flex flex-col gap-5" aria-label="Plan a trip">
+      {intro ? (
+        <div className="flex flex-col gap-3 rounded-md border border-foreground/30 p-4 text-sm">
+          <p>
+            Enter a trip and we find up to three routes, check the weather along each one at the time you’d be there, and recommend the safest for
+            your load.
+          </p>
+          <Button variant="secondary" onClick={tryExample} disabled={busy} className="self-start">
+            Try an example: Chicago → Denver
+          </Button>
+        </div>
+      ) : null}
+
       {banner ? (
         <div role="alert" className="rounded-md border border-red-700 bg-red-700/10 p-3 text-sm dark:border-red-400">
           <p className="font-semibold">{banner.message}</p>
-          {banner.retryable ? <p className="mt-1">Press “Plan route” to try again.</p> : null}
+          {banner.nextStep ? <p className="mt-1">{banner.nextStep}</p> : null}
         </div>
       ) : null}
 
@@ -175,9 +212,7 @@ export const TripForm = ({ onCreated }: Props): React.ReactElement => {
       <Button type="submit" busy={busy}>
         {busy ? "Planning route…" : "Plan route"}
       </Button>
-      <p aria-live="polite" className="sr-only">
-        {busy ? "Planning your route. This can take several seconds." : ""}
-      </p>
+      {busy ? <PlanningProgress /> : null}
     </form>
   );
 };
