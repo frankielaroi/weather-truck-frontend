@@ -7,6 +7,7 @@ import { Button } from "@/components/ui";
 import { ApiError } from "@/lib/api";
 
 import { getTrip } from "../api";
+import { defaultSelectedRoute } from "../map-data";
 import type { Trip } from "../types";
 import { TripForm } from "./TripForm";
 import { TripMap } from "./TripMap";
@@ -29,6 +30,7 @@ export const TripPlanner = (): React.ReactElement => {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [loadError, setLoadError] = useState<{ id: number; error: ApiError } | null>(null);
   const known = useRef<number | null>(null); // the trip we already hold, so a fresh submit isn't fetched again
+  const [picked, setPicked] = useState<{ tripId: number; route: number } | null>(null); // the route the driver chose
 
   useEffect(() => {
     if (tripId === null || known.current === tripId) return;
@@ -58,16 +60,19 @@ export const TripPlanner = (): React.ReactElement => {
 
   const shown = tripId !== null && trip?.id === tripId ? trip : null;
   const failed = tripId !== null && loadError?.id === tripId ? loadError.error : null;
+  // Until the driver picks one, the recommended route is the selected one; a pick belongs to its own trip.
+  const selectedRoute = shown ? (picked?.tripId === shown.id ? picked.route : defaultSelectedRoute(shown)) : 0;
 
   return (
     <div className="grid w-full max-w-5xl gap-8 lg:grid-cols-[minmax(0,24rem)_minmax(0,1fr)]">
       <TripForm onCreated={onCreated} />
-      <div className="flex min-w-0 flex-col gap-6">
-        <TripMap trip={shown?.status === "ready" ? shown : null} />
+      {/* On a phone the map and route cards come first once there is a trip, with the form below them. */}
+      <div className={`flex min-w-0 flex-col gap-6 ${shown ? "order-first lg:order-none" : ""}`}>
+        <TripMap trip={shown?.status === "ready" ? shown : null} selectedRouteIndex={selectedRoute} />
         <div aria-live="polite">
         {shown ? (
           <div className="flex flex-col gap-4">
-            <TripResults trip={shown} />
+            <TripResults trip={shown} selectedRouteIndex={selectedRoute} onSelectRoute={(route) => setPicked({ tripId: shown.id, route })} />
             <Button variant="secondary" onClick={startOver} className="self-start">
               Clear result
             </Button>
