@@ -8,8 +8,11 @@ import { Map as MapLibreMap, NavigationControl, setWorkerUrl } from "maplibre-gl
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, MAP_STYLE_URL } from "@/config/map";
 
 import { useHeatmapLayer } from "../hooks/useHeatmapLayer";
+import type { HourStore } from "../hooks/useHourStore";
+import { useMapHour } from "../hooks/useMapHour";
 import { useRiskColors } from "../hooks/useRiskColors";
 import { useTripLayers } from "../hooks/useTripLayers";
+import { useTruckLayer } from "../hooks/useTruckLayer";
 import type { Heatmap, Trip } from "../types";
 
 type Props = {
@@ -21,8 +24,8 @@ type Props = {
   onSelectRoute?: (index: number) => void;
   /** The corridor heatmap once loaded; drawn under the routes. */
   heatmap: Heatmap | null;
-  /** The hour (0–48) of the heatmap to show. */
-  heatmapHour: number;
+  /** The hour (0–48) the heatmap and the truck show; changing it never reloads anything. */
+  hourStore: HourStore;
   showHeatmap: boolean;
   className?: string;
 };
@@ -39,14 +42,16 @@ const hasWebGL = (): boolean => {
  * The map with a trip's routes and checkpoints on it: pan and zoom by mouse, touch or keyboard
  * (focus the map, then arrows and +/-). Browser-only, so load it through `TripMap`.
  */
-const MapCanvas = ({ trip, selectedRouteIndex, onSelectRoute, heatmap, heatmapHour, showHeatmap, className = "" }: Props): React.ReactElement => {
+const MapCanvas = ({ trip, selectedRouteIndex, onSelectRoute, heatmap, hourStore, showHeatmap, className = "" }: Props): React.ReactElement => {
   const container = useRef<HTMLDivElement>(null);
   const [supported] = useState(hasWebGL); // runs in the browser only: this module is never server-rendered
   const [map, setMap] = useState<MapLibreMap | null>(null); // set once the base style has loaded (not the tiles, which can be slow)
   const colors = useRiskColors();
 
   useTripLayers(map, trip, selectedRouteIndex, colors, onSelectRoute);
-  useHeatmapLayer(map, heatmap, heatmapHour, showHeatmap, colors); // after the route layers, so it can go under them
+  useMapHour(map, hourStore); // before the layers that read the hour
+  useHeatmapLayer(map, heatmap, hourStore, showHeatmap, colors); // after the route layers, so it can go under them
+  useTruckLayer(map, heatmap, colors); // last, so the truck draws on top
 
   useEffect(() => {
     const element = container.current;

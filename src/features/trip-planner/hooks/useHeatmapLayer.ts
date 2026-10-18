@@ -8,11 +8,12 @@ import type { FeatureCollection } from "geojson";
 import { buildHeatmapTooltip } from "../components/heatmap-tooltip";
 import { heatmapPoints, heatReading, heatRadiusAtZoom0, type HeatPointProps } from "../heatmap-data";
 import type { Heatmap } from "../types";
+import type { HourStore } from "./useHourStore";
+import { HOUR_STATE } from "./useMapHour";
 import type { RiskColors } from "./useRiskColors";
 
 const SOURCE = "trip-heatmap";
 const LAYER = "heatmap";
-const HOUR_STATE = "heatHour";
 /** The first route layer; the heatmap goes just under it, below every route line and marker. */
 const BELOW = "route-casing-other";
 
@@ -41,26 +42,27 @@ const setData = (map: MapLibreMap, data: FeatureCollection): void => {
 /**
  * Draws the corridor heatmap for one hour under the routes: a soft, semi-transparent circle per grid point,
  * coloured by its risk level with the F1 colours, blending into one shaded area. All 49 hours of level are
- * uploaded once; `hour` only changes a global-state value that the colour reads, so moving through the hours
- * loads and re-tiles nothing. Hovering shows the point's level and weather for the shown hour.
- * `visible` shows or hides it instantly. Add after `useTripLayers`, so the route layers already exist.
+ * uploaded once; the shown hour is a global-state value that the colour reads (set by `useMapHour`), so moving
+ * through the hours loads and re-tiles nothing. Hovering shows the point's level and weather for the shown
+ * hour, and follows the hour while the slider moves. `visible` shows or hides it instantly.
+ * Add after `useTripLayers`, so the route layers already exist.
  */
-export const useHeatmapLayer = (map: MapLibreMap | null, heatmap: Heatmap | null, hour: number, visible: boolean, colors: RiskColors): void => {
+export const useHeatmapLayer = (map: MapLibreMap | null, heatmap: Heatmap | null, hourStore: HourStore, visible: boolean, colors: RiskColors): void => {
   const heatmapRef = useRef<Heatmap | null>(heatmap);
-  const hourRef = useRef(hour);
+  const storeRef = useRef(hourStore);
   const visibleRef = useRef(visible);
   const tooltip = useRef<Popup | null>(null);
+  const refreshTooltip = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     heatmapRef.current = heatmap;
-    hourRef.current = hour;
+    storeRef.current = hourStore;
     visibleRef.current = visible;
-  }, [heatmap, hour, visible]);
+  }, [heatmap, hourStore, visible]);
 
   // Once per map: the source, the layer, and the hover tooltip.
   useEffect(() => {
     if (!map) return;
-    map.setGlobalStateProperty(HOUR_STATE, hourRef.current);
     map.addSource(SOURCE, { type: "geojson", data: EMPTY });
     map.addLayer(
       { id: LAYER, type: "circle", source: SOURCE, layout: { visibility: "none" }, paint: { "circle-blur": 1, "circle-radius": 8 } },
@@ -69,6 +71,7 @@ export const useHeatmapLayer = (map: MapLibreMap | null, heatmap: Heatmap | null
 
     let frame = 0;
     let shown = "";
+    let last: MapMouseEvent | null = null; // where the mouse is, so the tooltip can follow the hour
     const hide = (): void => {
       tooltip.current?.remove();
       shown = "";
@@ -90,9 +93,10 @@ export const useHeatmapLayer = (map: MapLibreMap | null, heatmap: Heatmap | null
           nearest = (hit.properties as HeatPointProps).i;
         }
       }
-      const reading = nearest >= 0 ? heatReading(data, nearest, hourRef.current) : null;
+      const hour = storeRef.current.get();
+      const reading = nearest >= 0 ? heatReading(data, nearest, hour) : null;
       if (!reading) return hide();
-      const key = `${nearest}:${hourRef.current}`;
+      const key = `${nearest}:${hour}`;
       tooltip.current ??= new Popup({ closeButton: false, closeOnClick: false, closeOnMove: false, offset: 14, maxWidth: "240px", className: "heat-tip" });
       tooltip.current.setLngLat(e.lngLat);
       if (key !== shown) tooltip.current.setDOMContent(buildHeatmapTooltip(reading));
@@ -100,13 +104,21 @@ export const useHeatmapLayer = (map: MapLibreMap | null, heatmap: Heatmap | null
       tooltip.current.addTo(map);
     };
     map.on("mousemove", (e) => {
+      last = e;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => update(e)); // at most one update per frame while the mouse moves
     });
     map.on("mouseout", () => {
+      last = null;
       cancelAnimationFrame(frame);
       hide();
     });
+    refreshTooltip.current = () => {
+      if (!last || shown === "") return;
+      const event = last;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => update(event));
+    };
   }, [map]);
 
   // New trip: replace the points and size the circles to its grid spacing.
@@ -124,10 +136,8 @@ export const useHeatmapLayer = (map: MapLibreMap | null, heatmap: Heatmap | null
     map.setPaintProperty(LAYER, "circle-opacity", byLevel(OPACITY.low, OPACITY.moderate, OPACITY.high, OPACITY.severe, OPACITY.noTravel, OPACITY.unknown));
   }, [map, colors]);
 
-  // The shown hour: one number the colour reads, so no data moves.
-  useEffect(() => {
-    if (map) map.setGlobalStateProperty(HOUR_STATE, hour);
-  }, [map, hour]);
+  // While the slider moves, an open tooltip shows the new hour's values.
+  useEffect(() => hourStore.subscribe(() => refreshTooltip.current?.()), [hourStore]);
 
   // On or off, instantly.
   useEffect(() => {

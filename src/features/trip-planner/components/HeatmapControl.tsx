@@ -6,13 +6,11 @@ type Props = {
   status: HeatmapState["status"];
   visible: boolean;
   onToggle: (visible: boolean) => void;
-  /** What the heatmap is showing, e.g. "Sun, Oct 18, 7:00 AM (departure hour)". */
-  shownLabel: string | null;
   onRetry: () => void;
 };
 
 /** Turns the weather heatmap on or off and says what it's showing: `<HeatmapControl status="ready" visible onToggle={set} ... />`. */
-export const HeatmapControl = ({ status, visible, onToggle, shownLabel, onRetry }: Props): React.ReactElement | null => {
+export const HeatmapControl = ({ status, visible, onToggle, onRetry }: Props): React.ReactElement | null => {
   if (status === "idle") return null;
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -31,7 +29,6 @@ export const HeatmapControl = ({ status, visible, onToggle, shownLabel, onRetry 
           Loading the heatmap…
         </span>
       ) : null}
-      {status === "ready" && shownLabel ? <span className="opacity-75">Showing {shownLabel}</span> : null}
       {status === "error" ? (
         <span role="alert" className="flex items-center gap-2">
           The weather heatmap didn’t load. Your routes are still shown.
