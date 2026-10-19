@@ -16,9 +16,9 @@ export const ApiStatus = (): React.ReactElement => {
 
   return (
     <p className="text-zinc-500">
-      Backend API:{" "}
+      {/* Backend API:{" "} */}
       <span className={status === "ok" ? "text-green-600" : status === "down" ? "text-red-600" : ""}>
-        {status}
+        /* {status} */
       </span>
     </p>
   );
